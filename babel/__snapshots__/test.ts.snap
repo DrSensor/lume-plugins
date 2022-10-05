@@ -1,0 +1,173 @@
+export const snapshot = {};
+
+snapshot[`babel plugin 1`] = `1`;
+
+snapshot[`babel plugin 2`] = `
+{
+  formats: [
+    {
+      engines: 1,
+      ext: ".tmpl.ts",
+      pageLoader: [AsyncFunction: module],
+    },
+    {
+      engines: 1,
+      ext: ".tmpl.js",
+      pageLoader: [AsyncFunction: module],
+    },
+    {
+      engines: undefined,
+      ext: ".tmpl.json",
+      pageLoader: [AsyncFunction: json],
+    },
+    {
+      dataLoader: [AsyncFunction: json],
+      engines: undefined,
+      ext: ".json",
+    },
+    {
+      engines: 1,
+      ext: ".md",
+      pageLoader: [AsyncFunction: text],
+    },
+    {
+      asset: true,
+      componentLoader: [AsyncFunction: module],
+      dataLoader: [AsyncFunction: module],
+      engines: 1,
+      ext: ".js",
+      pageLoader: [AsyncFunction: text],
+    },
+    {
+      componentLoader: [AsyncFunction: module],
+      dataLoader: [AsyncFunction: module],
+      engines: 1,
+      ext: ".ts",
+    },
+    {
+      componentLoader: [AsyncFunction: text],
+      engines: 1,
+      ext: ".njk",
+      includesPath: "_includes",
+      pageLoader: [AsyncFunction: text],
+    },
+    {
+      dataLoader: [AsyncFunction: yaml],
+      engines: undefined,
+      ext: ".yaml",
+      pageLoader: [AsyncFunction: yaml],
+    },
+    {
+      dataLoader: [AsyncFunction: yaml],
+      engines: undefined,
+      ext: ".yml",
+      pageLoader: [AsyncFunction: yaml],
+    },
+    {
+      asset: true,
+      engines: undefined,
+      ext: ".jsx",
+      pageLoader: [AsyncFunction: text],
+    },
+    {
+      asset: true,
+      engines: undefined,
+      ext: ".es6",
+      pageLoader: [AsyncFunction: text],
+    },
+    {
+      asset: true,
+      engines: undefined,
+      ext: ".es",
+      pageLoader: [AsyncFunction: text],
+    },
+    {
+      asset: true,
+      engines: undefined,
+      ext: ".mjs",
+      pageLoader: [AsyncFunction: text],
+    },
+    {
+      asset: true,
+      engines: undefined,
+      ext: ".cjs",
+      pageLoader: [AsyncFunction: text],
+    },
+  ],
+}
+`;
+
+snapshot[`babel plugin 3`] = `
+[
+]
+`;
+
+snapshot[`babel plugin 4`] = `
+{
+  content: 'class Title {
+  #A = getComputedStyle(document.body).fontSize;
+
+  get size() {
+    return this.#A;
+  }
+
+  set size(v) {
+    this.#A = v;
+  }
+
+  #text = "";
+
+  get text() {
+    return this.#text;
+  }
+
+  constructor(text) {
+    this.#text = text.data;
+  }
+
+}
+
+const titles = [];
+
+for (const h1 of document.getElementsByTagName("h1")) {
+  const title = new Title(h1.firstChild);
+  title.size = getComputedStyle(h1).fontSize;
+  titles.push(title);
+}
+
+console.debug(titles);',
+  data: {
+    content: 'class Title {
+  accessor size = getComputedStyle(document.body).fontSize
+  #text = ""
+  get text() { return this.#text }
+  constructor(text) { this.#text = text.data }
+}
+
+const titles = []
+for (const h1 of document.getElementsByTagName("h1")) {
+  const title = new Title(h1.firstChild)
+  title.size = getComputedStyle(h1).fontSize
+  titles.push(title)
+}
+console.debug(titles)
+',
+    date: 1970-01-01T00:00:00.000Z,
+    page: undefined,
+    paginate: [Function: paginate],
+    search: Search {},
+    tags: [
+    ],
+    url: "/script.js",
+  },
+  dest: {
+    ext: ".js",
+    path: "/script",
+  },
+  src: {
+    ext: ".js",
+    path: "/script",
+    remote: undefined,
+  },
+}
+`;
