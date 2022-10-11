@@ -8,7 +8,10 @@ export default {
     babel.pluginTransformRuntime,
     [babel.pluginProposalDecorators, { version: "2022-03" }],
   ],
-  targets: "unreleased Chrome versions",
+  targets: {
+    esmodules: true,
+    browsers: "unreleased Chrome versions",
+  },
 } as Options;
 
 export interface Options extends babel.TransformOptions {
@@ -20,7 +23,14 @@ export interface Options extends babel.TransformOptions {
   targets?: // adding 👈 cuz somehow babel.InputOptions is missing 🤔
     | string
     | string[]
-    | { esmodules: boolean }
+    | Partial<
+      {
+        esmodules: boolean;
+        browsers: string | string[];
+        node: string | "current" | true;
+        safari: string | "tp";
+      }
+    >
     | Record<
       | "android"
       | "chrome"
