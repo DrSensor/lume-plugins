@@ -104,7 +104,7 @@ snapshot[`babel plugin 3`] = `
 
 snapshot[`babel plugin 4`] = `
 {
-  content: 'class Title {
+  content: 'export class Title {
   #A = getComputedStyle(document.body).fontSize;
 
   get size() {
@@ -126,7 +126,6 @@ snapshot[`babel plugin 4`] = `
   }
 
 }
-
 const titles = [];
 
 for (const h1 of document.getElementsByTagName("h1")) {
@@ -137,7 +136,7 @@ for (const h1 of document.getElementsByTagName("h1")) {
 
 console.debug(titles);',
   data: {
-    content: 'class Title {
+    content: 'export class Title {
   accessor size = getComputedStyle(document.body).fontSize
   #text = ""
   get text() { return this.#text }

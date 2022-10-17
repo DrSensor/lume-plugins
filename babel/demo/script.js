@@ -1,4 +1,4 @@
-class Title {
+export class Title {
   accessor size = getComputedStyle(document.body).fontSize
   #text = ""
   get text() { return this.#text }

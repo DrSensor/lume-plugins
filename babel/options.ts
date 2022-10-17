@@ -3,7 +3,7 @@ import * as babel from "./deps.ts";
 export default {
   extensions: babel.DEFAULT_EXTENSIONS,
   sourceType: "unambiguous",
-  presets: [babel.presetEnv],
+  presets: [[babel.presetEnv, { modules: false }]],
   plugins: [
     babel.pluginTransformRuntime,
     [babel.pluginProposalDecorators, { version: "2022-03" }],
