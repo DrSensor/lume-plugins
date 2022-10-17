@@ -1,8 +1,8 @@
 {
   "importMap": "import_map.json",
   "tasks": {
-    "test": "deno test --allow-read --allow-env --unstable",
-    "snapshot": "deno task test --allow-write -- --update",
+    "test": "deno test --allow-read --allow-env --allow-write --unstable",
+    "snapshot": "deno task test -- --update",
     "update": "deno cache --reload --unstable --lock-write --lock lock.json **.ts"
   }
 }
