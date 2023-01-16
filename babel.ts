@@ -10,6 +10,9 @@ import defaultOptions from "./babel/options.ts";
 
 export default function (userOptions?: Partial<Options>) {
   let { extensions, ...babelOptions } = merge(defaultOptions, userOptions);
+  if (userOptions?.plugins) {
+    babelOptions.plugins!.unshift(...defaultOptions.plugins!);
+  }
   babelOptions = babel.loadOptions(babelOptions)!;
   return (site: Site) => {
     site.loadAssets(extensions);
