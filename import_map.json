@@ -1,6 +1,11 @@
 {
   "imports": {
     "std/": "https://deno.land/std/",
+    "rollup": "npm:rollup",
+    "rollup/": "https://esm.sh/@rollup/",
+    "rollup/plugin-esbuild": "npm:rollup-plugin-esbuild",
+    "rollup/plugin-swc": "npm:rollup-plugin-swc3",
+    "rollup/plugin-terser": "npm:@rollup/plugin-terser",
     "lume/": "https://deno.land/x/lume/"
   }
 }

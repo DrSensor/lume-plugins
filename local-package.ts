@@ -44,6 +44,14 @@ export interface Options {
   default?: "import" | "script";
 }
 
+export type Export = Partial<
+  Record<"default" | "script" | "import", string | RegExp>
+>;
+export interface Package {
+  name?: string;
+  exports: Map<string | RegExp, Export>;
+}
+
 const manifestExts = [".json"];
 
 const defaultOptions = {
@@ -58,20 +66,13 @@ export default (opts: Options = defaultOptions) => (site: Site) => {
     types: typeof kinds,
   ) => void (entries = inputs, kinds = types);
 
-  type Export = Partial<
-    Record<"default" | "script" | "import", string | RegExp>
-  >;
-  type Package = {
-    name?: string;
-    private: boolean;
-    exports: Map<string | RegExp, Export>;
-  };
-  const pkgAt = new Map<string, Package>();
+  type Pkg = Package & { private: boolean };
+  const pkgAt = new Map<string, Pkg>();
 
   site.process(manifestExts, (page) => {
     if (page.src.slug !== "package") return;
     const pkg: PackageJson = JSON.parse(page.content as string);
-    const register: Package = {
+    const register: Pkg = {
       name: pkg.name,
       private: !!pkg.private,
       exports: new Map(),
@@ -119,7 +120,7 @@ export default (opts: Options = defaultOptions) => (site: Site) => {
     callbackStack.pop()?.({ exports, name }, page.src.path);
   }).loadAssets(manifestExts);
 
-  type Callback = (pkg: Omit<Package, "private">, path: string) => void;
+  type Callback = (pkg: Package, path: string) => void;
   let callbackStack: Array<Callback> = [];
   site.addEventListener("beforeSave", () => callbackStack = []);
 
