@@ -1,0 +1,9 @@
+{
+  "name": "mylib",
+  "version": "1.0.0",
+  "exports": {
+    "./*": { "script": "./*.ts" },
+    "./std": { "import": "./std.ts" },
+    "./std/*": { "import": "./*.ts" }
+  }
+}
