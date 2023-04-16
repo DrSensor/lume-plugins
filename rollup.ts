@@ -1,7 +1,9 @@
+// deno-lint-ignore-file no-cond-assign
 import type { Site } from "lume/core.ts";
-import { join } from "std/path/mod.ts";
-import { emptyDir } from "std/fs/mod.ts";
-import type { Package } from "./local-package.ts";
+import { Page } from "lume/core/filesystem.ts";
+import { prepareAsset, saveAsset } from "lume/plugins/source_maps.ts";
+import { basename, globToRegExp, join, parse } from "std/path/mod.ts";
+import type { Exports, PackageExports } from "./local-package.ts";
 
 import { type Options as BuildOptions } from "lume/plugins/esbuild.ts";
 // TODO: try https://github.com/sanyuan0704/vite-plugin-chunk-split
@@ -23,67 +25,132 @@ import esbuild from "rollup/plugin-esbuild";
 type BuildConfig = BuildOptions["options"];
 export interface Options extends BuildConfig {
   excludes?: string[];
+  shimPrivateExports?: content | Record<glob | condition, content>;
+  shimPrivatePackage?: content | path | Record<glob, content | path>;
+  exportsDefault?: "import" | "script";
 }
+type content = string;
+type path = `./${string}`;
+type glob = `./${string}`;
+type condition = "import" | "script" | "types" | "asset" | "style" | "sass";
 
-export default (conf: Options, pkgPath: string) => (site: Site) => {
+export default (opts: Options) => (site: Site) => {
   const config: BuildConfig = {
-    outdir: join(site.options.dest, pkgPath),
+    outdir: site.options.dest,
     format: "esm",
     target: "esnext",
     platform: "browser",
   };
   config.bundle = config.minify = true;
-  Object.assign(config, conf);
+  Object.assign(config, opts);
 
-  let cache: RollupOptions["cache"] | undefined = false;
-  site
-    // .copy("package.json", join(pkgPath, "package.json"))
-    .addEventListener("afterStartServer", () => {
-      cache = undefined; // enable cache
-      config.watch = config.incremental = true;
-    });
+  let cache: RollupOptions["cache"];
+  site.addEventListener("afterStartServer", () => {
+    config.watch = config.incremental = true;
+  });
 
-  // TODO
-  /** Map { <script>.href => <script>.type === module } */
-  // const manifestExts = [".json"];
   const scriptExts = [".js", ".jsx", ".mjs", ".ts", ".tsx", ".mts"];
-
-  // site.process(manifestExts, (page) => {
-  //   if (page.src.slug === "package") {
-  //     const pkg: PackageJson = JSON.parse(page.content as string);
-  //   }
-  // }).loadAssets(manifestExts);
-
   site.processAll(scriptExts, (pages) => {
-    const scripts = new Map<string, string | RegExp>(),
-      modules = new Map<string, string | RegExp>(),
-      unknowns = new Map<string, string | RegExp>();
+    const pkgs: Record<string, {
+      private: boolean;
+      exports: Exports;
+      patterns: Exports;
+      pages: Record<string, Page>;
+      input: Set<string>;
+      nomodule: Set<string>;
+    }> = {};
 
-    site.hooks.forEachPackage((pkg: Package, path: string) => {
-      for (const [dest, exports] of pkg.exports) {
-        if (Object.hasOwn(exports, "script")) {
-          scripts.set(join(path, exports.script), dest);
-        } else if (Object.hasOwn(exports, "import")) {
-          modules.set(join(path, exports.import), dest);
-        } else if (Object.hasOwn(exports, "default")) {
-          unknowns.set(join(path, exports.default), dest);
+    site.hooks.forEachPackage((
+      name: string,
+      { exacts, patterns }: PackageExports,
+      isPrivate: boolean,
+    ) => {
+      const input = new Set<string>(), nomodule = new Set<string>();
+      const exports: Exports = {};
+      for (const [dest, entry] of Object.entries(exacts)) {
+        if (entry) {
+          for (const [condition, src] of Object.entries(entry)) {
+            if (
+              condition === "script" ||
+              (condition === "default" && opts.exportsDefault === "script")
+            ) nomodule.add(src);
+            if (
+              condition === "import" || condition === "script" ||
+              (condition === "default" && opts.exportsDefault != null)
+            ) {
+              input.add(src);
+              (exports[dest] ??= {})[condition] = parse(src).name + ".js";
+            }
+          }
         }
       }
+      pkgs[name] = {
+        private: isPrivate,
+        pages: {},
+        exports,
+        patterns,
+        input,
+        nomodule,
+      };
     });
 
-    const input: string[] = [], nonModules = new Set<string>();
+    const nonPkg = { input: [] as string[], nomodule: new Set<string>() };
+    let enableAllSourceMaps; // TODO: per local-package
 
     for (const page of pages) {
-      if (scripts.has(page.src.path)) nonModules.add(page.src.path);
-      else input.push(page.src.path);
-      // TODO: patch if exports <has> { script }
-      // TODO: groupBy package.json
+      const asset = prepareAsset(site, page);
+      if (asset.enableSourceMap) enableAllSourceMaps = true;
+
+      const src = page.src.path + page.src.ext;
+      let isPkg;
+      for (const pkg of Object.values(pkgs)) {
+        if (pkg.input.has(src)) { // check if page.src is in exact exports.*:path
+          pkg.pages[basename(src)] = page; // remember that rollup doesn't preserve path
+          isPkg = true;
+          continue; // say no more! prepare page.src to be bundled
+        }
+
+        for (const [dest, entry] of Object.entries(pkg.patterns)) {
+          if (!entry) continue; // most likely exact exports.*:path 🤔
+          for (const [condition, pattern] of Object.entries(entry)) {
+            let ok; // check if subpattern satisfied page.src
+
+            if (
+              (condition === "script" || (
+                condition === "default" && opts.exportsDefault === "script"
+              )) && (ok = globToRegExp(pattern).test(src))
+            ) pkg.nomodule.add(src);
+
+            if (
+              (condition === "import" || condition === "script" || (
+                condition === "default" && opts.exportsDefault != null
+              )) && (ok ?? globToRegExp(pattern).test(src))
+            ) {
+              pkg.input.add(src);
+              (pkg.exports[dest] ??= {})[condition] = parse(src)
+                .name + ".js";
+              pkg.pages[basename(src)] = page; // remember that rollup doesn't preserve path
+              isPkg = true;
+            }
+          }
+        }
+      }
+      if (!isPkg) nonPkg.input.push(src);
+    }
+
+    bundle(nonPkg.input, nonPkg.nomodule, enableAllSourceMaps);
+    for (const [pkgName, { input, nomodule, pages }] of Object.entries(pkgs)) {
+      bundle([...input], nomodule, enableAllSourceMaps, pages, pkgName);
     }
   }).loadAssets(scriptExts);
 
-  const bundle = async (input: string[], nonModules: Set<string>) => {
-    await emptyDir(config.outdir!);
-
+  const bundle = async (
+    input: string[],
+    nonModules: Set<string>,
+    sourcemap: OutputOptions["sourcemap"],
+    pages: Record<string, Page> = {},
+    outdir = ".",
+  ) => {
     const whitespace = config.minify || config.minifyWhitespace ? "" : "\n";
     const cfg = {
       input: {
@@ -112,7 +179,7 @@ export default (conf: Options, pkgPath: string) => (site: Site) => {
           // TODO: emit *.d.ts based on package.json#exports.*.types using https://github.com/Swatinem/rollup-plugin-dts
           // @ts-ignore: npm:rollup-plugin-esbuild doesn't provide type declaration
           esbuild({
-            ...conf,
+            ...opts,
             target: "esnext",
             // BUG(rollup-plugin-esbuild): can't handle import from *.mts
             // include: /\.[mc]?[jt]sx?$/,
@@ -123,8 +190,8 @@ export default (conf: Options, pkgPath: string) => (site: Site) => {
       } satisfies RollupOptions,
 
       output: {
-        dir: config.outdir,
-        sourcemap: !!config.sourcemap,
+        dir: join(config.outdir!, outdir),
+        sourcemap,
         freeze: false,
         generatedCode: {
           constBindings: true,
@@ -143,12 +210,12 @@ export default (conf: Options, pkgPath: string) => (site: Site) => {
       input,
       preserveEntrySignatures: "allow-extension",
     });
-    if (cache !== false) cache = build.cache;
+    cache = build.cache;
 
     const gen = await build.generate(cfg.output);
     for (const output of gen.output) {
       const outputPath = join(config.outdir!, output.fileName);
-      const bugs = ["current.js"] as const;
+      // const bugs = ["current.js"] as const;
       switch (output.type) {
         case "chunk": {
           let code = output.code;
@@ -164,21 +231,21 @@ export default (conf: Options, pkgPath: string) => (site: Site) => {
               code += whitespace + "})()" + "\n";
             }
           }
-          if (output.fileName === bugs[0]) {
-            const hash = code.match(/import.*from".\/registry-(.*).js/)![1];
-            code = `export{event,value}from"./registry-${hash}.js";\n` +
-              (config.sourcemap
-                ? `//# sourceMappingURL=registry-${hash}.js.map\n`
-                : "");
-          }
-          Deno.writeTextFile(outputPath, code); // TODO: remove this and use site.processAll()
+          // if (output.fileName === bugs[0]) { // TODO: create rollup plugin to handle this scenario
+          //   const hash = code.match(/import.*from".\/registry-(.*).js/)![1];
+          //   code = `export{event,value}from"./registry-${hash}.js";\n` +
+          //     (config.sourcemap
+          //       ? `//# sourceMappingURL=registry-${hash}.js.map\n`
+          //       : "");
+          // }
+          saveAsset(site, pages[output.fileName], code, output.map!);
           break;
         }
         case "asset": {
           const asset = output.source;
-          // TODO: remove this and use site.processAll()
-          if (typeof asset === "string") Deno.writeTextFile(outputPath, asset);
-          else Deno.writeFile(outputPath, asset);
+          if (typeof asset === "string") {
+            saveAsset(site, Page.create(outdir, asset as string), asset);
+          } else Deno.writeFile(outputPath, asset);
           break;
         }
       }

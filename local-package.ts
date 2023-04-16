@@ -1,6 +1,6 @@
 import type { Site } from "lume/core.ts";
 import type { PackageJson } from "npm:pkg-types";
-import { globToRegExp, isGlob } from "std/path/mod.ts";
+import { dirname, isGlob, join, joinGlobs } from "std/path/mod.ts";
 
 export interface Options {
   /** Treat npm:package as local package
@@ -41,16 +41,14 @@ export interface Options {
   /** How to treat `"default"` exports condition when package.json `{"type":"module"}` not specified.
    * It determine if the `<script>` require attribute `type=module` or not.
    */
-  default?: "import" | "script";
+  default?: condition;
 }
 
-export type Export = Partial<
-  Record<"default" | "script" | "import", string | RegExp>
->;
-export interface Package {
-  name?: string;
-  exports: Map<string | RegExp, Export>;
-}
+/** @see https://webpack.js.org/guides/package-exports/#conditions for the keys */
+export type Export = Record<condition | string, string>;
+type condition = "import" | "script" | "types" | "asset" | "style" | "sass";
+export type Exports = Record<string, Export | null>;
+export type PackageExports = Record<"exacts" | "patterns", Exports>;
 
 const manifestExts = [".json"];
 
@@ -66,69 +64,63 @@ export default (opts: Options = defaultOptions) => (site: Site) => {
     types: typeof kinds,
   ) => void (entries = inputs, kinds = types);
 
-  type Pkg = Package & { private: boolean };
-  const pkgAt = new Map<string, Pkg>();
+  type Pkg = [name: string, exports: PackageExports, isPrivate?: boolean];
+  const pkgs: Pkg[] = [];
 
   site.process(manifestExts, (page) => {
     if (page.src.slug !== "package") return;
     const pkg: PackageJson = JSON.parse(page.content as string);
-    const register: Pkg = {
-      name: pkg.name,
-      private: !!pkg.private,
-      exports: new Map(),
-    };
-    const { exports, name } = register;
+    if (!pkg.name || (pkg.private && opts.excludePrivate)) return;
+    const exports: PackageExports = { exacts: {}, patterns: {} };
+    const root = dirname(page.src.path);
 
     const script = pkg.main ?? pkg.browser;
     const default_ = pkg.type === "module" ? "import" : "default";
-    // TODO: relative path -> project path
-    if (!pkg.exports && !script) exports.set(".", { [default_]: "./index.js" });
-    else if (typeof pkg.exports === "string") {
-      exports.set(".", {
-        ...script ? { import: pkg.exports, script } : { default: pkg.exports },
-      });
-    } else if (script) exports.set(".", { [default_]: script });
-    else {
+    let resolve = (path: string) => join(root, path);
+
+    if (!pkg.exports && !script) {
+      (exports.exacts["."] ??= {})[default_] = resolve("./index.js");
+    } else if (typeof pkg.exports === "string") {
+      const e = exports.exacts["."] ??= {};
+      if (script) {
+        e.import = pkg.exports;
+        e.script = script;
+      } else e.default = resolve(pkg.exports);
+    } else if (script) {
+      (exports.exacts["."] ??= {})[default_] = resolve(script);
+    } else {
       for (const path in pkg.exports) {
+        let e;
+        if (isGlob(path)) {
+          e = exports.patterns[path] ??= {};
+          resolve = (path_: string) => joinGlobs([root, path_]);
+        } else e = exports.exacts[path] ??= {};
+
         const $ = pkg.exports[path];
-        if (typeof $ === "string") {
-          exports.set(
-            isGlob(path) ? globToRegExp(path) : path,
-            { default: isGlob($) ? globToRegExp($) : $ },
-          );
-        } else {
-          const routes: Export = {};
+        if (typeof $ === "string") e.default = resolve($);
+        else {
           for (const type in $) {
-            let type_: "import" | "script" | "default" | undefined;
-            switch (type) {
-              case "import":
-              case "script":
-                type_ = type;
-                break;
-              case "default":
-                type_ = default_; // BUG(typescript): can't auto infer `let` without type
-            }
-            if (!type_) continue;
-            routes[type_] ??= isGlob($[type]) ? globToRegExp($[type]) : $[type];
+            e[type === "default" ? default_ : type] ??= resolve($[type]);
           }
-          exports.set(isGlob(path) ? globToRegExp(path) : path, routes);
         }
       }
     }
 
-    pkgAt.set(page.src.path, register);
-    callbackStack.pop()?.({ exports, name }, page.src.path);
+    pkgs.push([pkg.name, exports, pkg.private]);
+    callbackStack.pop()?.(...pkgs.pop()!);
   }).loadAssets(manifestExts);
 
-  type Callback = (pkg: Package, path: string) => void;
+  type Callback = (
+    name: string,
+    exports: PackageExports,
+    isPrivate?: boolean,
+  ) => void;
   let callbackStack: Array<Callback> = [];
   site.addEventListener("beforeSave", () => callbackStack = []);
 
   site.hooks.forEachPackage = (callback: Callback) => {
     callbackStack.push(callback);
-    for (const [path, { name, private: isPrivate, exports }] of pkgAt) {
-      if (!name || (isPrivate && opts.excludePrivate)) continue;
-      callbackStack.pop()?.({ exports, name }, path);
-    }
+    let args; // deno-lint-ignore no-cond-assign
+    while (args = pkgs.pop()) callbackStack.pop()?.(...args);
   };
 };
