@@ -24,7 +24,7 @@ import esbuild from "rollup/plugin-esbuild";
 
 type BuildConfig = BuildOptions["options"] & RollupOptions;
 export interface Options extends BuildConfig {
-  excludes?: string[];
+  ignores?: string[];
   shimPrivateExports?: content | Record<glob | condition, content>;
   shimPrivatePackage?: content | path | Record<glob, content | path>;
   exportsDefault?: "import" | "script";
@@ -35,6 +35,7 @@ type glob = `./${string}`;
 type condition = "import" | "script" | "types" | "asset" | "style" | "sass";
 
 export default (opts: Options = {}) => (site: Site) => {
+  const ignores = opts.ignores?.map((glob) => globToRegExp(glob));
   const config: BuildConfig = {
     outdir: site.options.dest,
     format: "esm",
@@ -42,12 +43,13 @@ export default (opts: Options = {}) => (site: Site) => {
     platform: "browser",
   };
   config.bundle = config.minify = true;
+  delete opts.ignores;
   Object.assign(config, opts);
 
   let cache: RollupOptions["cache"];
   const cachePkg = {} as Record<string, typeof cache>;
 
-  const scriptExts = [".ts", ".tsx", ".mts"];
+  const scriptExts = [".js", ".jsx", ".mjs", ".ts", ".tsx", ".mts"];
   site.processAll(scriptExts, (pages, all) => {
     const pkgs: Record<string, {
       private: boolean;
@@ -100,6 +102,7 @@ export default (opts: Options = {}) => (site: Site) => {
       if (asset.enableSourceMap) enableAllSourceMaps = true;
 
       const src = page.src.path + page.src.ext;
+
       let isPkg;
       for (const pkg of Object.values(pkgs)) {
         if (pkg.input.has(src)) { // check if page.src is in exact exports.*:path
@@ -133,7 +136,10 @@ export default (opts: Options = {}) => (site: Site) => {
           }
         }
       }
-      if (!isPkg) nonPkg.input.push(src);
+      if (
+        !isPkg && !page.src.remote &&
+        !ignores?.some((pattern) => pattern.test(src.slice(1)))
+      ) nonPkg.input.push(src);
     }
 
     // TODO: resolve `import "npm:<pkg-name>"` to local-package
@@ -152,7 +158,7 @@ export default (opts: Options = {}) => (site: Site) => {
     nonModules: Set<string>,
     sourcemap: OutputOptions["sourcemap"],
     write: Page[],
-    pages: Record<string, Page> = {},
+    pages: Record<string, Page | undefined> = {},
     outdir = ".",
   ) => {
     const whitespace = config.minify || config.minifyWhitespace ? "" : "\n";
@@ -244,10 +250,12 @@ export default (opts: Options = {}) => (site: Site) => {
           //       : "");
           // }
           let chunk;
+          const page = pages[output.fileName];
+          const url = join("/", outdir, output.fileName);
+          if (page) page.data.url = url;
           saveAsset(
             site,
-            pages[output.fileName] ??
-              (chunk = Page.create(join("/", outdir, output.fileName), "")),
+            page ?? (chunk = Page.create(url, "")),
             code,
             output.map,
           );
