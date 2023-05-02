@@ -95,7 +95,7 @@ export default (opts: Options = {}) => (site: Site) => {
     });
 
     const nonPkg = { input: [] as string[], nomodule: new Set<string>() };
-    let enableAllSourceMaps; // TODO: per local-package
+    let enableAllSourceMaps = false; // TODO: per local-package
 
     for (const page of pages) {
       const asset = prepareAsset(site, page);
@@ -156,7 +156,7 @@ export default (opts: Options = {}) => (site: Site) => {
   const bundle = async (
     input: string[],
     nonModules: Set<string>,
-    sourcemap: OutputOptions["sourcemap"],
+    sourcemap: boolean,
     write: Page[],
     pages: Record<string, Page | undefined> = {},
     outdir = ".",
@@ -201,7 +201,7 @@ export default (opts: Options = {}) => (site: Site) => {
 
       output: {
         dir: join(config.outdir!, outdir),
-        sourcemap,
+        sourcemap: sourcemap && "hidden",
         freeze: false,
         generatedCode: {
           constBindings: true,
